@@ -1,51 +1,73 @@
 import csv
 import json
+from time import sleep
 
 import requests
 
 import secrets
 
-
+header = {'authorization': secrets.discord_auth_key}
+url = f'https://discord.com/api/v9/channels/{secrets.avrae_channel_id}/messages'
 spell_data_header = ['name', 'lvl_school', 'availability', 'casting_time', 'range_area',
                      'components', 'duration', 'description', 'upcasting', 'source']
 
 
-def retrieve_last_message():
-    headers = {
-        'authorization': secrets.discord_auth_key
+def send_bot_command(_spell):
+    payload = {
+        'content': f'!spell {_spell}'
     }
-    r = requests.get(f'https://discord.com/api/v9/channels/{secrets.avrae_channel_id}/messages', headers=headers)
+    r = requests.post(url, data=payload, headers=header)
+    return 0
+
+
+def retrieve_spell_data():
+    r = requests.get(url, headers=header)
     json_data = json.loads(r.text)
 
     msg_count = 0
-    while json_data[msg_count]['author']['id'] != secrets.avrae_user_id:
+    while json_data[msg_count]['author']['id'] == secrets.avrae_user_id:
         msg_count += 1
 
-    return json_data[msg_count]
+    name = json_data[msg_count - 1]['embeds'][0]['title']
+    lvl_school = json_data[msg_count - 1]['embeds'][0]['description'].split('. ')[0].strip('*')
+    availability = json_data[msg_count - 1]['embeds'][0]['description'].split('. ')[1].strip('()*')
+    casting_time = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[0].split(': ')[1]
+    range_area = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[1].split(': ')[1]
+    components = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[2].split(': ')[1]
+    duration = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[3].split(': ')[1]
 
+    description = ''
+    upcasting = ''
+    for msg in range(msg_count - 1, -1, -1):
+        if msg == (msg_count - 1):
+            description += json_data[msg]['embeds'][0]['fields'][1]['value']
+            if len(json_data[0]['embeds'][0]['fields']) > 2:
+                upcasting += json_data[0]['embeds'][0]['fields'][2]['value']
+        else:
+            description += ' ' + json_data[msg]['embeds'][0]['description']
+            if json_data[0]['embeds'][0]['fields'][0]['name'] == 'At Higher Levels':
+                upcasting += json_data[0]['embeds'][0]['fields'][0]['value']
 
-def format_spell_data(message):
-    content = message['embeds'][0]
-
-    name = content['title']
-    lvl_school = content['description'].split('. ')[0].strip('*')
-    availability = content['description'].split('. ')[1].strip('()*')
-    casting_time = content['fields'][0]['value'].split('\n')[0].split(': ')[1]
-    range_area = content['fields'][0]['value'].split('\n')[1].split(': ')[1]
-    components = content['fields'][0]['value'].split('\n')[2].split(': ')[1]
-    duration = content['fields'][0]['value'].split('\n')[3].split(': ')[1]
-    description = content['fields'][1]['value']
-    if len(content['fields']) > 2:
-        upcasting = content['fields'][2]['value']
-    else:
-        upcasting = ''
-    source = content['footer']['text'].split(' | ')[1]
+    source = json_data[0]['embeds'][0]['footer']['text'].split(' | ')[1]
 
     return [name, lvl_school, availability, casting_time, range_area,
             components, duration, description, upcasting, source]
 
 
-with open('spell-data.csv', 'w', encoding='UTF8', newline='') as f:
-    writer = csv.writer(f)
-    writer.writerow(spell_data_header)
-    writer.writerow(format_spell_data(retrieve_last_message()))
+def write_to_csv(_spell_list):
+    with open('spell-data.csv', 'w', encoding='UTF8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(spell_data_header)
+        sleep(1)
+        for spell in _spell_list:
+            send_bot_command(spell)
+            sleep(1.5)
+            try:
+                writer.writerow(retrieve_spell_data())
+            except:
+                print("Exception occurred: " + spell)
+            finally:
+                sleep(1)
+
+
+write_to_csv(secrets.spell_list)
