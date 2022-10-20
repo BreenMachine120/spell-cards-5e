@@ -9,7 +9,7 @@ import secrets
 header = {'authorization': secrets.discord_auth_key}
 url = f'https://discord.com/api/v9/channels/{secrets.avrae_channel_id}/messages'
 spell_data_header = ['name', 'lvl_school', 'availability', 'casting_time', 'range_area',
-                     'components', 'duration', 'description', 'upcasting', 'source']
+                     'components', 'duration', 'description', 'source']
 
 
 def send_bot_command(_spell):
@@ -37,28 +37,28 @@ def retrieve_spell_data():
     duration = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[3].split(': ')[1]
 
     description = ''
-    upcasting = ''
     for msg in range(msg_count - 1, -1, -1):
         if msg == (msg_count - 1):
             description += json_data[msg]['embeds'][0]['fields'][1]['value']
-            if len(json_data[0]['embeds'][0]['fields']) > 2:
-                upcasting += json_data[0]['embeds'][0]['fields'][2]['value']
         else:
-            description += ' ' + json_data[msg]['embeds'][0]['description']
-            if json_data[0]['embeds'][0]['fields'][0]['name'] == 'At Higher Levels':
-                upcasting += json_data[0]['embeds'][0]['fields'][0]['value']
+            description += '\n' + json_data[msg]['embeds'][0]['description']
+    description = description.replace('\n\n', '\n')
+    if len(json_data[msg_count-1]['embeds'][0]['fields']) > 2:
+        description += '\nAt Higher Levels: ' + json_data[msg_count-1]['embeds'][0]['fields'][2]['value']
+    elif 'fields' in json_data[0]['embeds'][0]:
+        if json_data[0]['embeds'][0]['fields'][0]['name'] == 'At Higher Levels':
+            description += '\nAt Higher Levels: ' + json_data[0]['embeds'][0]['fields'][0]['value']
 
     source = json_data[0]['embeds'][0]['footer']['text'].split(' | ')[1]
 
     return [name, lvl_school, availability, casting_time, range_area,
-            components, duration, description, upcasting, source]
+            components, duration, description, source]
 
 
 def write_to_csv(_spell_list):
     with open('spell-data.csv', 'w', encoding='UTF8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(spell_data_header)
-        sleep(1)
         for spell in _spell_list:
             send_bot_command(spell)
             sleep(1.5)
@@ -66,8 +66,6 @@ def write_to_csv(_spell_list):
                 writer.writerow(retrieve_spell_data())
             except:
                 print("Exception occurred: " + spell)
-            finally:
-                sleep(1)
 
 
 write_to_csv(secrets.spell_list)
