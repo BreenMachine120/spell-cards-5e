@@ -1,71 +1,69 @@
-import csv
-import json
-from time import sleep
-
 import requests
+from bs4 import BeautifulSoup
 
 import secrets
 
-header = {'authorization': secrets.discord_auth_key}
-url = f'https://discord.com/api/v9/channels/{secrets.avrae_channel_id}/messages'
-spell_data_header = ['name', 'lvl_school', 'availability', 'casting_time', 'range_area',
-                     'components', 'duration', 'description', 'source']
+
+def init_soup(url):
+    headers = secrets.headers
+    webpage = requests.get(url, headers=headers)
+    soup = BeautifulSoup(webpage.content, 'html.parser')
+    print('Webpage accessed: ' + url)
+    return soup
 
 
-def send_bot_command(_spell):
-    payload = {
-        'content': f'!spell {_spell}'
-    }
-    r = requests.post(url, data=payload, headers=header)
-    return 0
+def retrieve_spell_list(base_url):
+    print('Retrieving spell list...')
+    spell_url_list = []
+
+    soup = init_soup(base_url)
+    footer_elements = soup.find('div', class_='listing-footer').find_all('li')
+    if len(footer_elements) > 0:
+        pages = int(footer_elements[len(footer_elements) - 2].text)
+    else:
+        pages = 1
+
+    for page in range(pages):
+
+        soup = init_soup(base_url + '&page=' + str(page + 1))
+        listing_body = soup.find('div', class_='listing-body')
+        links = listing_body.find_all('a')
+        for link in links:
+            d = {'URL': 'https://www.dndbeyond.com' + link.get('href')}     # should a dict be used here?
+            spell_url_list.append(d)
+
+    print('Spell list retrieved')
+    return spell_url_list
+
+    # with open('spell-data.csv', 'w', newline='') as f:    # move to different function
+    #     w = csv.DictWriter(f, ['URL'])
+    #     w.writeheader()
+    #     w.writerows(spell_url_list)
 
 
-def retrieve_spell_data():
-    r = requests.get(url, headers=header)
-    json_data = json.loads(r.text)
+def retrieve_spell_details(spell_url):  # redo this garbage entirely
+    soup = init_soup(spell_url)
+    spell_name = soup.find('h1', class_='page-title').text.strip()
 
-    msg_count = 0
-    while json_data[msg_count]['author']['id'] == secrets.avrae_user_id:
-        msg_count += 1
+    spell_level, spell_casting_time, spell_range_area, spell_components, spell_duration, spell_school, spell_attack_save, spell_damage_effect = '', '', '', '', '', '', '', ''
+    statblock = soup.find('div', class_='ddb-statblock ddb-statblock-spell')
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-level').find('div', class_='ddb-statblock-item-value'): spell_level+= element.text.strip()
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-casting-time').find('div', class_='ddb-statblock-item-value'): spell_casting_time += element.text.strip()
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-range-area').find('div', class_='ddb-statblock-item-value'): spell_range_area += element.text.strip()
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-components').find('div', class_='ddb-statblock-item-value'): spell_components += element.text.strip()
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-duration').find('div', class_='ddb-statblock-item-value'): spell_duration += element.text.strip()
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-school').find('div', class_='ddb-statblock-item-value'): spell_school += element.text.strip()
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-attack-save').find('div', class_='ddb-statblock-item-value'): spell_attack_save += element.text.strip()
+    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-damage-effect').find('div', class_='ddb-statblock-item-value'): spell_damage_effect += element.text.strip()
 
-    name = json_data[msg_count - 1]['embeds'][0]['title']
-    lvl_school = json_data[msg_count - 1]['embeds'][0]['description'].split('. ')[0].strip('*')
-    availability = json_data[msg_count - 1]['embeds'][0]['description'].split('. ')[1].strip('()*')
-    casting_time = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[0].split(': ')[1]
-    range_area = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[1].split(': ')[1]
-    components = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[2].split(': ')[1]
-    duration = json_data[msg_count - 1]['embeds'][0]['fields'][0]['value'].split('\n')[3].split(': ')[1]
+    spell_description = ''
+    for element in soup.find('div', class_='more-info-content'): spell_description += element.text.strip()
 
-    description = ''
-    for msg in range(msg_count - 1, -1, -1):
-        if msg == (msg_count - 1):
-            description += json_data[msg]['embeds'][0]['fields'][1]['value']
-        else:
-            description += '\n' + json_data[msg]['embeds'][0]['description']
-    description = description.replace('\n\n', '\n')
-    if len(json_data[msg_count-1]['embeds'][0]['fields']) > 2:
-        description += '\nAt Higher Levels: ' + json_data[msg_count-1]['embeds'][0]['fields'][2]['value']
-    elif 'fields' in json_data[0]['embeds'][0]:
-        if json_data[0]['embeds'][0]['fields'][0]['name'] == 'At Higher Levels':
-            description += '\nAt Higher Levels: ' + json_data[0]['embeds'][0]['fields'][0]['value']
-
-    source = json_data[0]['embeds'][0]['footer']['text'].split(' | ')[1]
-
-    return [name, lvl_school, availability, casting_time, range_area,
-            components, duration, description, source]
+    print(spell_name, spell_level, spell_casting_time, spell_range_area, spell_components, spell_duration, spell_school, spell_attack_save, spell_damage_effect)
+    print(spell_description)
 
 
-def write_to_csv(_spell_list):
-    with open('spell-data.csv', 'w', encoding='UTF8', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(spell_data_header)
-        for spell in _spell_list:
-            send_bot_command(spell)
-            sleep(1.5)
-            try:
-                writer.writerow(retrieve_spell_data())
-            except:
-                print("Exception occurred: " + spell)
-
-
-write_to_csv(secrets.spell_list)
+search_url1 = 'https://www.dndbeyond.com/spells?filter-class=0&filter-search=&filter-source=1&filter-source=4&filter-source=2&filter-source=80&filter-source=13&filter-source=67&filter-source=27&sort=level'
+search_url2 = 'https://www.dndbeyond.com/spells?filter-class=0&filter-class=2&filter-search=&filter-level=0&filter-verbal=&filter-somatic=&filter-material=&filter-concentration=&filter-ritual=&filter-sub-class='
+retrieve_spell_list(search_url2)
+# retrieve_spell_details('https://www.dndbeyond.com/spells/fireball')
