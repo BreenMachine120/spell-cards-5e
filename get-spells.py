@@ -1,7 +1,42 @@
+import csv
+
 import requests
 from bs4 import BeautifulSoup
 
 import secrets
+
+# TODO: cache web results
+
+search_page = 'https://www.dndbeyond.com/spells'
+sources = [44, 4, 2, 80, 13, 67, 27]
+
+
+def generate_search_url(filters):
+    url = search_page + '?sort=level'
+    for source in sources:
+        url += f'&filter-source={source}'
+    return url + filters
+
+
+all_owned = generate_search_url('')
+cleric_cantrips = generate_search_url('?filter-class=2&filter-level=0')
+level_1 = generate_search_url('?filter-level=1')
+
+
+def generate_spell_cards(search_list):
+
+    all_spells = []
+    url_list = retrieve_spell_list(search_list)
+
+    for page in url_list:
+        try:
+            spell_details = retrieve_spell_details(page)
+        except AttributeError:
+            print('Inaccessible: ' + page)
+        else:
+            all_spells.append(spell_details)
+
+    write_to_csv(all_spells)
 
 
 def init_soup(url):
@@ -29,41 +64,106 @@ def retrieve_spell_list(base_url):
         listing_body = soup.find('div', class_='listing-body')
         links = listing_body.find_all('a')
         for link in links:
-            d = {'URL': 'https://www.dndbeyond.com' + link.get('href')}     # should a dict be used here?
-            spell_url_list.append(d)
+            url = 'https://www.dndbeyond.com' + link.get('href')
+            spell_url_list.append(url)
 
     print('Spell list retrieved')
     return spell_url_list
 
-    # with open('spell-data.csv', 'w', newline='') as f:    # move to different function
-    #     w = csv.DictWriter(f, ['URL'])
-    #     w.writeheader()
-    #     w.writerows(spell_url_list)
 
-
-def retrieve_spell_details(spell_url):  # redo this garbage entirely
+def retrieve_spell_details(spell_url):
     soup = init_soup(spell_url)
-    spell_name = soup.find('h1', class_='page-title').text.strip()
 
-    spell_level, spell_casting_time, spell_range_area, spell_components, spell_duration, spell_school, spell_attack_save, spell_damage_effect = '', '', '', '', '', '', '', ''
+    name = soup.find('h1', class_='page-title').text.strip()
     statblock = soup.find('div', class_='ddb-statblock ddb-statblock-spell')
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-level').find('div', class_='ddb-statblock-item-value'): spell_level+= element.text.strip()
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-casting-time').find('div', class_='ddb-statblock-item-value'): spell_casting_time += element.text.strip()
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-range-area').find('div', class_='ddb-statblock-item-value'): spell_range_area += element.text.strip()
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-components').find('div', class_='ddb-statblock-item-value'): spell_components += element.text.strip()
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-duration').find('div', class_='ddb-statblock-item-value'): spell_duration += element.text.strip()
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-school').find('div', class_='ddb-statblock-item-value'): spell_school += element.text.strip()
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-attack-save').find('div', class_='ddb-statblock-item-value'): spell_attack_save += element.text.strip()
-    for element in statblock.find('div', class_='ddb-statblock-item ddb-statblock-item-damage-effect').find('div', class_='ddb-statblock-item-value'): spell_damage_effect += element.text.strip()
 
-    spell_description = ''
-    for element in soup.find('div', class_='more-info-content'): spell_description += element.text.strip()
+    level = statblock\
+        .find('div', class_='ddb-statblock-item ddb-statblock-item-level')\
+        .find('div', class_='ddb-statblock-item-value').text.strip()
+    duration = ''
+    for element in statblock\
+            .find('div', class_='ddb-statblock-item ddb-statblock-item-duration')\
+            .find('div', class_='ddb-statblock-item-value'):
+        if element.text.strip() == 'Concentration':
+            name += ' (Concentration)'
+        else:
+            duration += element.text.strip()
+    casting_time = ''
+    for element in statblock\
+            .find('div', class_='ddb-statblock-item ddb-statblock-item-casting-time')\
+            .find('div', class_='ddb-statblock-item-value'):
+        if element.text.strip() == 'Ritual':
+            name += ' (Ritual)'
+        else:
+            casting_time += element.text.strip()
+    range_area = ''
+    for element in statblock\
+            .find('div', class_='ddb-statblock-item ddb-statblock-item-range-area')\
+            .find('div', class_='ddb-statblock-item-value'):
+        range_area += element.text.strip()
+    range_area = range_area.replace('(', ' (').replace(' )', ')')
 
-    print(spell_name, spell_level, spell_casting_time, spell_range_area, spell_components, spell_duration, spell_school, spell_attack_save, spell_damage_effect)
-    print(spell_description)
+    components = statblock\
+        .find('div', class_='ddb-statblock-item ddb-statblock-item-components')\
+        .find('div', class_='ddb-statblock-item-value').text.strip()
+    school = statblock\
+        .find('div', class_='ddb-statblock-item ddb-statblock-item-school')\
+        .find('div', class_='ddb-statblock-item-value').text.strip()
+    attack_save = statblock\
+        .find('div', class_='ddb-statblock-item ddb-statblock-item-attack-save')\
+        .find('div', class_='ddb-statblock-item-value').text.strip()
+    damage_effect = statblock\
+        .find('div', class_='ddb-statblock-item ddb-statblock-item-damage-effect')\
+        .find('div', class_='ddb-statblock-item-value').text.strip()
+
+    description = ''
+    for element in soup.find('div', class_='more-info-content'):
+        if element.text.strip() != '':
+            description += element.text.strip() + ' \n'
+    description = description.replace('At Higher Levels. ', 'At Higher Levels: ')
+
+    tags = ''
+    for tag in soup.find('p', class_='tags spell-tags')\
+            .findAll('span', class_='tag spell-tag'):
+        if tags != '':
+            tags += ', '
+        tags += tag.text
+
+    availability = ''
+    for element in soup.find('p', class_='tags available-for')\
+            .findAll('span', class_='tag class-tag'):
+        if availability != '':
+            availability += ', '
+        availability += element.text.strip()
+
+    source = soup.find('p', class_='source spell-source').text.strip()
+
+    spell_details = {
+        'URL': spell_url,
+        'Name': name,
+        'Level': level,
+        'Casting Time': casting_time,
+        'Range/Area': range_area,
+        'Components': components,
+        'Duration': duration,
+        'School': school,
+        'Attack/Save': attack_save,
+        'Damage/Effect': damage_effect,
+        'Description': description,
+        'Tags': tags,
+        'Availability': availability,
+        'Source': source
+    }
+
+    return spell_details
 
 
-search_url1 = 'https://www.dndbeyond.com/spells?filter-class=0&filter-search=&filter-source=1&filter-source=4&filter-source=2&filter-source=80&filter-source=13&filter-source=67&filter-source=27&sort=level'
-search_url2 = 'https://www.dndbeyond.com/spells?filter-class=0&filter-class=2&filter-search=&filter-level=0&filter-verbal=&filter-somatic=&filter-material=&filter-concentration=&filter-ritual=&filter-sub-class='
-retrieve_spell_list(search_url2)
-# retrieve_spell_details('https://www.dndbeyond.com/spells/fireball')
+def write_to_csv(spell_list):
+    with open('spell-data.csv', 'w', newline='', encoding='utf-8') as f:
+        fieldnames = spell_list[0].keys()
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(spell_list)
+
+
+generate_spell_cards(all_owned)
